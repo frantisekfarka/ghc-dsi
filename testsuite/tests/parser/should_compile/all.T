@@ -97,3 +97,5 @@ test('T5243', extra_clean(['T5243A.hi', 'T5243A.o']),
 test('T7118', normal, compile, [''])
 test('T7776', normal, compile, [''])
 test('T5682', normal, compile, [''])
+
+test('SuperclassDefaultInstances', normal, compile, [''])

@@ -586,6 +586,8 @@ data ExtensionFlag
    | Opt_NegativeLiterals
    | Opt_EmptyCase
    | Opt_PatternSynonyms
+
+   | Opt_SuperclassDefaultInstances	-- Experimental extension
    deriving (Eq, Enum, Show)
 
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
@@ -2879,7 +2881,8 @@ xFlags = [
   ( "BinaryLiterals",                   Opt_BinaryLiterals, nop ),
   ( "NegativeLiterals",                 Opt_NegativeLiterals, nop ),
   ( "EmptyCase",                        Opt_EmptyCase, nop ),
-  ( "PatternSynonyms",                  Opt_PatternSynonyms, nop )
+  ( "PatternSynonyms",                  Opt_PatternSynonyms, nop ),
+  ( "SuperclassDefaultInstances",       Opt_SuperclassDefaultInstances, nop ) -- experimental extension
   ]
 
 defaultFlags :: Settings -> [GeneralFlag]
