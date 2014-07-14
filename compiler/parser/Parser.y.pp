@@ -687,6 +687,34 @@ overlap_pragma :: { Maybe OverlapMode }
   | '{-# NO_OVERLAP' '#-}'    { Just NoOverlap  }
   | {- empty -}               { Nothing }
 
+-- Default instances
+
+dinst_decl :: { LInstDecl RdrName }
+        {--: 'instance' inst_type where_inst
+	            { noLoc nilOL }
+        --}
+        : 'instance' inst_type where_inst
+                 { let (binds, sigs, _, ats, adts, _) = cvBindsAndSigs (unLoc $3) in
+                   let cid = ClsInstDecl { cid_poly_ty = $2, cid_binds = binds
+                                         , cid_sigs = sigs, cid_tyfam_insts = ats
+                                         , cid_overlap_mode = Just NoOverlap
+                                         , cid_datafam_insts = adts }
+                   in L (comb3 $1 $2 $3) (ClsInstD { cid_inst = cid }) }
+
+        {--  -- data/newtype instance declaration
+        | data_or_newtype 'instance' capi_ctype tycl_hdr constrs deriving
+                {% mkDataFamInst (comb4 $1 $4 $5 $6) (unLoc $1) $3 $4
+                                      Nothing (reverse (unLoc $5)) (unLoc $6) }
+
+          -- GADT instance declaration
+        | data_or_newtype 'instance' capi_ctype tycl_hdr opt_kind_sig
+                 gadt_constrlist
+                 deriving
+                {% mkDataFamInst (comb4 $1 $4 $6 $7) (unLoc $1) $3 $4
+                                     (unLoc $5) (unLoc $6) (unLoc $7) }
+        --}
+
+
 
 -- Closed type families
 
@@ -845,6 +873,9 @@ decl_cls  : at_decl_cls                 { LL (unitOL $1) }
           | 'default' infixexp '::' sigtypedoc
                     {% do { (TypeSig l ty) <- checkValSig $2 $4
                           ; return (LL $ unitOL (LL $ SigD (GenericSig l ty))) } }
+          | 'default' dinst_decl
+	            { noLoc nilOL }
+  
 
 decls_cls :: { Located (OrdList (LHsDecl RdrName)) }    -- Reversed
           : decls_cls ';' decl_cls      { LL (unLoc $1 `appOL` unLoc $3) }
