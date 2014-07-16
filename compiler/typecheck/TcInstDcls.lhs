@@ -503,6 +503,11 @@ tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
   = do { (insts, fam_insts) <- tcClsInstDecl (L loc decl)
        ; return (insts, fam_insts) }
 
+tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
+  = error "TODO fill pattern!" {-- do { (insts, fam_insts) <- tcClsInstDecl (L loc decl)
+       ; return (insts, fam_insts) }
+     --}
+
 tcClsInstDecl :: LClsInstDecl Name -> TcM ([InstInfo Name], [FamInst])
 tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                                   , cid_sigs = uprags, cid_tyfam_insts = ats

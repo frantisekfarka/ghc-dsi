@@ -31,6 +31,7 @@ module HsDecls (
   DataFamInstDecl(..), LDataFamInstDecl, pprDataFamInstFlavour,
   TyFamInstEqn(..), LTyFamInstEqn,
   LClsInstDecl, ClsInstDecl(..),
+  LClsDefInstDecl, ClsDefInstDecl(..),
 
   -- ** Standalone deriving declarations
   DerivDecl(..), LDerivDecl,
@@ -471,6 +472,7 @@ data TyClDecl name
                 tcdFDs     :: [Located (FunDep name)],  -- ^ Functional deps
                 tcdSigs    :: [LSig name],              -- ^ Methods' signatures
                 tcdMeths   :: LHsBinds name,            -- ^ Default methods
+                tcdDSIs	   :: [LClsDefInstDecl name],   -- ^ Default superclass instances
                 tcdATs     :: [LFamilyDecl name],       -- ^ Associated types; ie
                 tcdATDefs  :: [LTyFamInstDecl name],    -- ^ Associated type defaults
                 tcdDocs    :: [LDocDecl],               -- ^ Haddock docs
@@ -624,16 +626,18 @@ instance OutputableBndr name
 
     ppr (ClassDecl {tcdCtxt = context, tcdLName = lclas, tcdTyVars = tyvars, 
                     tcdFDs  = fds,
+		    tcdDSIs = dsi,
                     tcdSigs = sigs, tcdMeths = methods,
                     tcdATs = ats, tcdATDefs = at_defs})
-      | null sigs && isEmptyBag methods && null ats && null at_defs -- No "where" part
+      | null sigs && isEmptyBag methods && null ats && null at_defs && null dsi-- No "where" part
       = top_matter
 
       | otherwise       -- Laid out
       = vcat [ top_matter <+> ptext (sLit "where")
              , nest 2 $ pprDeclList (map ppr ats ++
                                      map ppr at_defs ++
-                                     pprLHsBindsForUser methods sigs) ]
+                                     pprLHsBindsForUser methods sigs ++
+				     map ppr dsi)]
       where
         top_matter = ptext (sLit "class") 
                      <+> pp_vanilla_decl_head lclas tyvars (unLoc context)
@@ -946,12 +950,31 @@ data ClsInstDecl name
   deriving (Data, Typeable)
 
 
+----------------- Class default superclass instances -------------
+
+type LClsDefInstDecl name = Located (ClsDefInstDecl name)
+data ClsDefInstDecl name
+  = ClsDefInstDecl
+      { cdid_poly_ty :: LHsType name    -- Context => Class Instance-type
+                                       -- Using a polytype means that the renamer conveniently
+                                       -- figures out the quantified type variables for us.
+      , cdid_binds :: LHsBinds name
+      , cdid_sigs  :: [LSig name]                -- User-supplied pragmatic info
+      , cdid_tyfam_insts :: [LTyFamInstDecl name]  -- type family instances
+      , cdid_datafam_insts :: [LDataFamInstDecl name] -- data family instances
+      , cdid_overlap_mode :: Maybe OverlapMode
+      }
+  deriving (Data, Typeable)
+
+
 ----------------- Instances of all kinds -------------
 
 type LInstDecl name = Located (InstDecl name)
 data InstDecl name  -- Both class and family instances
   = ClsInstD    
       { cid_inst  :: ClsInstDecl name }
+  | ClsDefInstD             -- class default instance
+      { cdid_inst :: ClsDefInstDecl name }
   | DataFamInstD              -- data family instance
       { dfid_inst :: DataFamInstDecl name }
   | TyFamInstD              -- type family instance
@@ -1037,13 +1060,31 @@ ppOveralapPragma mb =
     Just OverlapOk   -> ptext (sLit "{-# OVERLAP #-}")
     Just Incoherent  -> ptext (sLit "{-# INCOHERENT #-}")
 
+instance (OutputableBndr name) => Outputable (ClsDefInstDecl name) where
+    ppr (ClsDefInstDecl { cdid_poly_ty = inst_ty, cdid_binds = binds
+                     , cdid_sigs = sigs, cdid_tyfam_insts = ats
+                     , cdid_overlap_mode = mbOverlap
+                     , cdid_datafam_insts = adts }
+		     )
+      | null sigs, null ats, null adts, isEmptyBag binds  -- No "where" part
+      = top_matter
 
+      | otherwise       -- Laid out
+      = vcat [ top_matter <+> ptext (sLit "where")
+             , nest 2 $ pprDeclList $
+               map (pprTyFamInstDecl NotTopLevel . unLoc)   ats ++
+               map (pprDataFamInstDecl NotTopLevel . unLoc) adts ++
+               pprLHsBindsForUser binds sigs ]
+      where
+        top_matter = ptext (sLit "instance") <+> ppOveralapPragma mbOverlap
+                                             <+> ppr inst_ty
 
 
 instance (OutputableBndr name) => Outputable (InstDecl name) where
     ppr (ClsInstD     { cid_inst  = decl }) = ppr decl
     ppr (TyFamInstD   { tfid_inst = decl }) = ppr decl
     ppr (DataFamInstD { dfid_inst = decl }) = ppr decl
+    ppr (ClsDefInstD  { cdid_inst = decl }) = ppr decl
 
 -- Extract the declarations of associated data types from an instance
 
@@ -1055,6 +1096,8 @@ instDeclDataFamInsts inst_decls
       = map unLoc fam_insts
     do_one (L _ (DataFamInstD { dfid_inst = fam_inst }))      = [fam_inst]
     do_one (L _ (TyFamInstD {}))                              = []
+    do_one (L _ (ClsDefInstD { cdid_inst = ClsDefInstDecl { cdid_datafam_insts = fam_insts } }))
+      = map unLoc fam_insts
 \end{code}
 
 %************************************************************************
