@@ -844,8 +844,8 @@ decl_cls  : at_decl_cls                 { LL (unitOL $1) }
           | 'default' infixexp '::' sigtypedoc
                     {% do { (TypeSig l ty) <- checkValSig $2 $4
                           ; return (LL $ unitOL (LL $ SigD (GenericSig l ty))) } }
-          | 'default' dinst_decl
-                    { LL (unitOL (LL $ InstD (unLoc $2))) }
+          | 'default' dinst_decl {% hintSuperclassDefaultInstances (getLoc $1) >>
+                                    return (LL (unitOL (LL $ InstD (unLoc $2)))) }
   
 
 decls_cls :: { Located (OrdList (LHsDecl RdrName)) }    -- Reversed
@@ -2341,4 +2341,13 @@ hintExplicitForall span = do
       , text "Perhaps you intended to use RankNTypes or a similar language"
       , text "extension to enable explicit-forall syntax: \x2200 <tvs>. <type>"
       ]
+
+-- Hint about the Default superclass instances
+hintSuperclassDefaultInstances :: SrcSpan -> P ()
+hintSuperclassDefaultInstances span = do
+  dsiEnabled <- liftM ((Opt_SuperclassDefaultInstances `xopt`) . dflags) getPState
+  unless dsiEnabled $ parseErrorSDoc span $
+    text "Superclass Default Instance definitions need SuperclassDefaultInstances turned on"
+
 }
+
