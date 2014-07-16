@@ -123,8 +123,9 @@ mkClassDecl :: SrcSpan
             -> Located (OrdList (LHsDecl RdrName))
             -> P (LTyClDecl RdrName)
 
+-- TODO Default Superclass instances
 mkClassDecl loc (L _ (mcxt, tycl_hdr)) fds where_cls
-  = do { let (binds, sigs, ats, at_defs, _, docs) = cvBindsAndSigs (unLoc where_cls)
+  = do { let (binds, sigs, ats, at_defs, _, cdis, docs) = cvBindsAndSigs (unLoc where_cls)
              cxt = fromMaybe (noLoc []) mcxt
        ; (cls, tparams) <- checkTyClHdr tycl_hdr
        ; tyvars <- checkTyVars (ptext (sLit "class")) whereDots
@@ -132,6 +133,7 @@ mkClassDecl loc (L _ (mcxt, tycl_hdr)) fds where_cls
        ; return (L loc (ClassDecl { tcdCtxt = cxt, tcdLName = cls, tcdTyVars = tyvars,
                                     tcdFDs = unLoc fds, tcdSigs = sigs, tcdMeths = binds,
                                     tcdATs = ats, tcdATDefs = at_defs, tcdDocs  = docs,
+                                    tcdDSIs = cdis,
                                     tcdFVs = placeHolderNames })) }
 
 mkTyData :: SrcSpan
@@ -301,33 +303,37 @@ cvTopDecls decls = go (fromOL decls)
 -- Declaration list may only contain value bindings and signatures.
 cvBindGroup :: OrdList (LHsDecl RdrName) -> HsValBinds RdrName
 cvBindGroup binding
+-- TODO superclass defaults
   = case cvBindsAndSigs binding of
-      (mbs, sigs, fam_ds, tfam_insts, dfam_insts, _) 
+      (mbs, sigs, fam_ds, tfam_insts, dfam_insts, _,  _) 
          -> ASSERT( null fam_ds && null tfam_insts && null dfam_insts)
             ValBindsIn mbs sigs
 
 cvBindsAndSigs :: OrdList (LHsDecl RdrName)
   -> (LHsBinds RdrName, [LSig RdrName], [LFamilyDecl RdrName]
-          , [LTyFamInstDecl RdrName], [LDataFamInstDecl RdrName], [LDocDecl])
+          , [LTyFamInstDecl RdrName], [LDataFamInstDecl RdrName]
+	  , [LClsDefInstDecl RdrName], [LDocDecl])
 -- Input decls contain just value bindings and signatures
 -- and in case of class or instance declarations also
 -- associated type declarations. They might also contain Haddock comments.
 cvBindsAndSigs  fb = go (fromOL fb)
   where
-    go []                  = (emptyBag, [], [], [], [], [])
-    go (L l (SigD s) : ds) = (bs, L l s : ss, ts, tfis, dfis, docs)
-                           where (bs, ss, ts, tfis, dfis, docs) = go ds
-    go (L l (ValD b) : ds) = (b' `consBag` bs, ss, ts, tfis, dfis, docs)
+    go []                  = (emptyBag, [], [], [], [], [], [])
+    go (L l (SigD s) : ds) = (bs, L l s : ss, ts, tfis, dfis, cdis, docs)
+                           where (bs, ss, ts, tfis, dfis, cdis, docs) = go ds
+    go (L l (ValD b) : ds) = (b' `consBag` bs, ss, ts, tfis, dfis, cdis, docs)
                            where (b', ds')    = getMonoBind (L l b) ds
-                                 (bs, ss, ts, tfis, dfis, docs) = go ds'
-    go (L l (TyClD (FamDecl t)) : ds) = (bs, ss, L l t : ts, tfis, dfis, docs)
-                           where (bs, ss, ts, tfis, dfis, docs) = go ds
-    go (L l (InstD (TyFamInstD { tfid_inst = tfi })) : ds) = (bs, ss, ts, L l tfi : tfis, dfis, docs)
-                           where (bs, ss, ts, tfis, dfis, docs) = go ds
-    go (L l (InstD (DataFamInstD { dfid_inst = dfi })) : ds) = (bs, ss, ts, tfis, L l dfi : dfis, docs)
-                           where (bs, ss, ts, tfis, dfis, docs) = go ds
-    go (L l (DocD d) : ds) =  (bs, ss, ts, tfis, dfis, (L l d) : docs)
-                           where (bs, ss, ts, tfis, dfis, docs) = go ds
+                                 (bs, ss, ts, tfis, dfis, cdis, docs) = go ds'
+    go (L l (TyClD (FamDecl t)) : ds) = (bs, ss, L l t : ts, tfis, dfis, cdis, docs)
+                           where (bs, ss, ts, tfis, dfis, cdis, docs) = go ds
+    go (L l (InstD (TyFamInstD { tfid_inst = tfi })) : ds) = (bs, ss, ts, L l tfi : tfis, dfis, cdis, docs)
+                           where (bs, ss, ts, tfis, dfis, cdis, docs) = go ds
+    go (L l (InstD (DataFamInstD { dfid_inst = dfi })) : ds) = (bs, ss, ts, tfis, L l dfi : dfis, cdis, docs)
+                           where (bs, ss, ts, tfis, dfis, cdis, docs) = go ds
+    go (L l (InstD (ClsDefInstD { cdid_inst = cdi })) : ds) = (bs, ss, ts, tfis, dfis, L l cdi : cdis, docs)
+                           where (bs, ss, ts, tfis, dfis, cdis, docs) = go ds
+    go (L l (DocD d) : ds) =  (bs, ss, ts, tfis, dfis, cdis, (L l d) : docs)
+                           where (bs, ss, ts, tfis, dfis, cdis, docs) = go ds
     go (L _ d : _) = pprPanic "cvBindsAndSigs" (ppr d)
 
 -----------------------------------------------------------------------------

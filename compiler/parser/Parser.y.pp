@@ -658,7 +658,7 @@ ty_decl :: { LTyClDecl RdrName }
 
 inst_decl :: { LInstDecl RdrName }
         : 'instance' overlap_pragma inst_type where_inst
-                 { let (binds, sigs, _, ats, adts, _) = cvBindsAndSigs (unLoc $4) in
+                 { let (binds, sigs, _, ats, adts, _, _) = cvBindsAndSigs (unLoc $4) in
                    let cid = ClsInstDecl { cid_poly_ty = $3, cid_binds = binds
                                          , cid_sigs = sigs, cid_tyfam_insts = ats
                                          , cid_overlap_mode = $2
@@ -686,35 +686,6 @@ overlap_pragma :: { Maybe OverlapMode }
   | '{-# INCOHERENT' '#-}'    { Just Incoherent }
   | '{-# NO_OVERLAP' '#-}'    { Just NoOverlap  }
   | {- empty -}               { Nothing }
-
--- Default instances
-
-dinst_decl :: { LInstDecl RdrName }
-        {--: 'instance' inst_type where_inst
-	            { noLoc nilOL }
-        --}
-        : 'instance' inst_type where_inst
-                 { let (binds, sigs, _, ats, adts, _) = cvBindsAndSigs (unLoc $3) in
-                   let cid = ClsInstDecl { cid_poly_ty = $2, cid_binds = binds
-                                         , cid_sigs = sigs, cid_tyfam_insts = ats
-                                         , cid_overlap_mode = Just NoOverlap
-                                         , cid_datafam_insts = adts }
-                   in L (comb3 $1 $2 $3) (ClsInstD { cid_inst = cid }) }
-
-        {--  -- data/newtype instance declaration
-        | data_or_newtype 'instance' capi_ctype tycl_hdr constrs deriving
-                {% mkDataFamInst (comb4 $1 $4 $5 $6) (unLoc $1) $3 $4
-                                      Nothing (reverse (unLoc $5)) (unLoc $6) }
-
-          -- GADT instance declaration
-        | data_or_newtype 'instance' capi_ctype tycl_hdr opt_kind_sig
-                 gadt_constrlist
-                 deriving
-                {% mkDataFamInst (comb4 $1 $4 $6 $7) (unLoc $1) $3 $4
-                                     (unLoc $5) (unLoc $6) (unLoc $7) }
-        --}
-
-
 
 -- Closed type families
 
@@ -874,7 +845,7 @@ decl_cls  : at_decl_cls                 { LL (unitOL $1) }
                     {% do { (TypeSig l ty) <- checkValSig $2 $4
                           ; return (LL $ unitOL (LL $ SigD (GenericSig l ty))) } }
           | 'default' dinst_decl
-	            { noLoc nilOL }
+                    { LL (unitOL (LL $ InstD (unLoc $2))) }
   
 
 decls_cls :: { Located (OrdList (LHsDecl RdrName)) }    -- Reversed
@@ -921,6 +892,27 @@ where_inst :: { Located (OrdList (LHsDecl RdrName)) }   -- Reversed
                                 -- May have type declarations
         : 'where' decllist_inst         { LL (unLoc $2) }
         | {- empty -}                   { noLoc nilOL }
+-- Default instances
+
+dinst_decl :: { LInstDecl RdrName }
+        : 'instance' inst_type where_inst
+                 { let (binds, sigs, _, ats, adts, _, _) = cvBindsAndSigs (unLoc $3) in
+                   let cdid = ClsDefInstDecl { cdid_poly_ty = $2, cdid_binds = binds
+                                         , cdid_sigs = sigs, cdid_tyfam_insts = ats
+                                         , cdid_overlap_mode = Just NoOverlap
+                                         , cdid_datafam_insts = adts }
+                   in L (comb2 $2 $3) (ClsDefInstD { cdid_inst = cdid })
+		 }
+
+-- Default Instance body
+--
+--where_dinst :: { Located (OrdList (LHsDecl RdrName)) }   -- Reversed
+                                -- No implicit parameters
+                                -- May have type declarations
+        --: 'where' decllist_inst         { LL (unLoc $2) }
+        -- : 'where'                       { noLoc nilOL }
+        -- | {- empty -}                   { noLoc nilOL }
+
 
 -- Declarations in binding groups other than classes and instances
 --
