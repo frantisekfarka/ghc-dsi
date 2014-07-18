@@ -133,7 +133,7 @@ mkClassDecl loc (L _ (mcxt, tycl_hdr)) fds where_cls
        ; return (L loc (ClassDecl { tcdCtxt = cxt, tcdLName = cls, tcdTyVars = tyvars,
                                     tcdFDs = unLoc fds, tcdSigs = sigs, tcdMeths = binds,
                                     tcdATs = ats, tcdATDefs = at_defs, tcdDocs  = docs,
-                                    tcdDSIs = cdis,
+                                    tcdSDIs = cdis,
                                     tcdFVs = placeHolderNames })) }
 
 mkTyData :: SrcSpan
