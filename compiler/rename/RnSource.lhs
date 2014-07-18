@@ -585,6 +585,75 @@ rnDataFamInstDecl mb_cls (DataFamInstDecl { dfid_tycon = tycon
                                  , dfid_pats  = pats'
                                  , dfid_defn  = defn'
                                  , dfid_fvs   = fvs }, fvs) }
+
+rnClsDefInstDecl :: ClsDefInstDecl RdrName -> RnM (ClsDefInstDecl Name, FreeVars)
+rnClsDefInstDecl (ClsDefInstDecl { cdid_poly_ty = inst_ty, cdid_binds = mbinds
+                           , cdid_sigs = uprags, cdid_tyfam_insts = ats
+                           , cdid_overlap_mode = oflag
+                           , cdid_datafam_insts = adts })
+        -- Used for both source and interface file decls
+  = do { (inst_ty', inst_fvs) <- rnLHsInstType (text "In an default instance declaration") inst_ty
+       ; case splitLHsInstDeclTy_maybe inst_ty' of {
+           Nothing -> return (ClsDefInstDecl { cdid_poly_ty = inst_ty', cdid_binds = emptyLHsBinds
+                                             , cdid_sigs = [], cdid_tyfam_insts = []
+                                             , cdid_overlap_mode = oflag
+                                             , cdid_datafam_insts = [] }
+                             , inst_fvs) ;
+           Just (inst_tyvars, _, L _ cls,_) ->
+
+    do { let (spec_inst_prags, other_sigs) = partition isSpecInstLSig uprags
+             ktv_names = hsLKiTyVarNames inst_tyvars
+
+       -- Rename the associated types, and type signatures
+       -- Both need to have the instance type variables in scope
+       ; traceRn (text "rnSrcInstDecl"  <+> ppr inst_ty' $$ ppr inst_tyvars $$ ppr ktv_names)
+       ; ((ats', adts', other_sigs'), more_fvs) 
+             <- extendTyVarEnvFVRn ktv_names $
+                do { (ats', at_fvs) <- rnATInstDecls rnTyFamInstDecl cls inst_tyvars ats
+                   ; (adts', adt_fvs) <- rnATInstDecls rnDataFamInstDecl cls inst_tyvars adts
+                   ; (other_sigs', sig_fvs) <- renameSigs (InstDeclCtxt cls) other_sigs
+                   ; return ( (ats', adts', other_sigs')
+                            , at_fvs `plusFV` adt_fvs `plusFV` sig_fvs) }
+
+        -- Rename the bindings
+        -- The typechecker (not the renamer) checks that all
+        -- the bindings are for the right class
+        -- (Slightly strangely) when scoped type variables are on, the
+        -- forall-d tyvars scope over the method bindings too
+       ; (mbinds', meth_fvs) <- extendTyVarEnvForMethodBinds ktv_names $
+                                rnMethodBinds cls (mkSigTvFn other_sigs')
+                                                  mbinds
+
+        -- Rename the SPECIALISE instance pramas
+        -- Annoyingly the type variables are not in scope here,
+        -- so that      instance Eq a => Eq (T a) where
+        --                      {-# SPECIALISE instance Eq a => Eq (T [a]) #-}
+        -- works OK. That's why we did the partition game above
+        --
+       ; (spec_inst_prags', spec_inst_fvs)
+             <- renameSigs (InstDeclCtxt cls) spec_inst_prags
+
+       ; let uprags' = spec_inst_prags' ++ other_sigs'
+             all_fvs = meth_fvs `plusFV` more_fvs
+                          `plusFV` spec_inst_fvs
+                          `plusFV` inst_fvs
+       ; return (ClsDefInstDecl { cdid_poly_ty = inst_ty', cdid_binds = mbinds'
+                                , cdid_sigs = uprags', cdid_tyfam_insts = ats'
+                                , cdid_overlap_mode = oflag
+                                , cdid_datafam_insts = adts' },
+                 all_fvs) } } }
+             -- We return the renamed associated data type declarations so
+             -- that they can be entered into the list of type declarations
+             -- for the binding group, but we also keep a copy in the instance.
+             -- The latter is needed for well-formedness checks in the type
+             -- checker (eg, to ensure that all ATs of the instance actually
+             -- receive a declaration).
+             -- NB: Even the copies in the instance declaration carry copies of
+             --     the instance context after renaming.  This is a bit
+             --     strange, but should not matter (and it would be more work
+             --     to remove the context).
+
+
 \end{code}
 
 Renaming of the associated types in instances.
@@ -959,6 +1028,7 @@ rnTyClDecl (DataDecl { tcdLName = tycon, tcdTyVars = tyvars, tcdDataDefn = defn 
 rnTyClDecl (ClassDecl {tcdCtxt = context, tcdLName = lcls, 
                               tcdTyVars = tyvars, tcdFDs = fds, tcdSigs = sigs, 
                               tcdMeths = mbinds, tcdATs = ats, tcdATDefs = at_defs,
+                              tcdSDIs = sdis,
                               tcdDocs = docs})
   = do  { lcls' <- lookupLocatedTopBndrRn lcls
         ; let cls' = unLoc lcls'
@@ -1008,6 +1078,11 @@ rnTyClDecl (ClassDecl {tcdCtxt = context, tcdLName = lcls,
                 -- and the methods are already in scope
                  rnMethodBinds cls' (mkSigTvFn sigs') mbinds
 
+        -- superclass default instances
+        --
+        --
+        ; (sdis', sdis_fvs)
+            <- rnList rnClsDefInstDecl sdis
   -- Haddock docs
         ; docs' <- mapM (wrapLocM rnDocDecl) docs
 
@@ -1015,6 +1090,7 @@ rnTyClDecl (ClassDecl {tcdCtxt = context, tcdLName = lcls,
         ; return (ClassDecl { tcdCtxt = context', tcdLName = lcls',
                               tcdTyVars = tyvars', tcdFDs = fds', tcdSigs = sigs',
                               tcdMeths = mbinds', tcdATs = ats', tcdATDefs = at_defs',
+			      tcdSDIs = sdis', 
                               tcdDocs = docs', tcdFVs = all_fvs },
                   all_fvs ) }
   where
