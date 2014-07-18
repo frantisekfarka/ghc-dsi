@@ -3,20 +3,27 @@
 
 module SuperclassDefaultInstances where
 
+import Prelude ()
 
-class Functor f => Applicative f where
+class Functor' f where
+	fmap' :: (a -> b) -> f a -> f b
+
+class Functor' f => Applicative f where
 	pure :: a -> f a
 	(<*>) :: f (a -> b) -> f a -> f b
 
-	default instance Functor f where
+	default instance Functor' f where
 		--fmap :: (a -> b) -> f a -> f b
-		fmap f x = pure f <*> x
+		fmap' g x = pure g <*> x
 
 
-data Identity a = Id a
+data Unit a = Unit
+--	deriving (Show)
 	
-instance Applicative Identity where
-	pure a = Id a
-	(<*>) (Id f) (Id a) = Id (f a)
+instance Applicative Unit where
+	pure a = Unit
+	(<*>) _ _ = Unit
 
+
+-- main = print $ fmap' id Unit
 
