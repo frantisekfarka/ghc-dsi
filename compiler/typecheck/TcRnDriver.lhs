@@ -1781,6 +1781,7 @@ tcDump env
 pprTcGblEnv :: TcGblEnv -> SDoc
 pprTcGblEnv (TcGblEnv { tcg_type_env  = type_env,
                         tcg_insts     = insts,
+                        tcg_dinsts    = dinsts,
                         tcg_fam_insts = fam_insts,
                         tcg_rules     = rules,
                         tcg_vects     = vects,
@@ -1788,6 +1789,7 @@ pprTcGblEnv (TcGblEnv { tcg_type_env  = type_env,
   = vcat [ ppr_types insts type_env
          , ppr_tycons fam_insts type_env
          , ppr_insts insts
+         , ppr_dinsts dinsts
          , ppr_fam_insts fam_insts
          , vcat (map ppr rules)
          , vcat (map ppr vects)
@@ -1834,6 +1836,10 @@ ppr_tycons fam_insts type_env
 ppr_insts :: [ClsInst] -> SDoc
 ppr_insts []     = empty
 ppr_insts ispecs = text "INSTANCES" $$ nest 2 (pprInstances ispecs)
+
+ppr_dinsts :: [ClsInst] -> SDoc
+ppr_dinsts []     = empty
+ppr_dinsts ispecs = text "DEFAULT INSTANCES" $$ nest 2 (pprInstances ispecs)
 
 ppr_fam_insts :: [FamInst] -> SDoc
 ppr_fam_insts []        = empty
