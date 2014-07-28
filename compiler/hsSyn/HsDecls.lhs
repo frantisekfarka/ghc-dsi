@@ -472,7 +472,7 @@ data TyClDecl name
                 tcdFDs     :: [Located (FunDep name)],  -- ^ Functional deps
                 tcdSigs    :: [LSig name],              -- ^ Methods' signatures
                 tcdMeths   :: LHsBinds name,            -- ^ Default methods
-                tcdDSIs	   :: [LClsDefInstDecl name],   -- ^ Default superclass instances
+                tcdSDIs	   :: [LClsDefInstDecl name],   -- ^ Default superclass instances
                 tcdATs     :: [LFamilyDecl name],       -- ^ Associated types; ie
                 tcdATDefs  :: [LTyFamInstDecl name],    -- ^ Associated type defaults
                 tcdDocs    :: [LDocDecl],               -- ^ Haddock docs
@@ -626,7 +626,7 @@ instance OutputableBndr name
 
     ppr (ClassDecl {tcdCtxt = context, tcdLName = lclas, tcdTyVars = tyvars, 
                     tcdFDs  = fds,
-		    tcdDSIs = dsi,
+		    tcdSDIs = dsi,
                     tcdSigs = sigs, tcdMeths = methods,
                     tcdATs = ats, tcdATDefs = at_defs})
       | null sigs && isEmptyBag methods && null ats && null at_defs && null dsi-- No "where" part
@@ -1076,7 +1076,7 @@ instance (OutputableBndr name) => Outputable (ClsDefInstDecl name) where
                map (pprDataFamInstDecl NotTopLevel . unLoc) adts ++
                pprLHsBindsForUser binds sigs ]
       where
-        top_matter = ptext (sLit "instance") <+> ppOveralapPragma mbOverlap
+        top_matter = ptext (sLit "default instance") <+> ppOveralapPragma mbOverlap
                                              <+> ppr inst_ty
 
 
