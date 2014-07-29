@@ -563,7 +563,7 @@ lookupInstEnv' ie cls tys
 
 ---------------
 -- This is the common way to call this function.
-lookupInstEnv :: (InstEnv, InstEnv)     -- External and home package inst-env
+lookupInstEnv :: (InstEnv, InstEnv)     -- External, home and default package inst-env
               -> Class -> [Type]   -- What we are looking for
               -> ClsInstLookupResult
  

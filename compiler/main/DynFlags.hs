@@ -2882,7 +2882,7 @@ xFlags = [
   ( "NegativeLiterals",                 Opt_NegativeLiterals, nop ),
   ( "EmptyCase",                        Opt_EmptyCase, nop ),
   ( "PatternSynonyms",                  Opt_PatternSynonyms, nop ),
-  ( "SuperclassDefaultInstances",       Opt_SuperclassDefaultInstances, nop ) -- experimental extension
+  ( "SuperclassDefaultInstances",       Opt_SuperclassDefaultInstances, setSDPrecs ) -- experimental extension
   ]
 
 defaultFlags :: Settings -> [GeneralFlag]
@@ -3147,6 +3147,14 @@ setPackageTrust = do
 setGenDeriving :: TurnOnFlag -> DynP ()
 setGenDeriving True  = getCurLoc >>= \l -> upd (\d -> d { newDerivOnLoc = l })
 setGenDeriving False = return ()
+
+-- set Superclass Defaults prerequisities - TODO FARI remove
+setSDPrecs :: TurnOnFlag -> DynP ()
+setSDPrecs True = do
+	setExtensionFlag Opt_UndecidableInstances
+	setExtensionFlag Opt_FlexibleInstances
+setSDPrecs False = return ()
+
 
 checkTemplateHaskellOk :: TurnOnFlag -> DynP ()
 #ifdef GHCI

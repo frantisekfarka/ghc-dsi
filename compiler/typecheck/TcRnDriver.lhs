@@ -909,6 +909,7 @@ tcTopSrcDecls boot_details
                 -- now using the kind-checked decls
         traceTc "Tc6" empty ;
         inst_binds <- tcInstDecls2 (tyClGroupConcat tycl_decls) inst_infos ;
+	traceTc "FARI: inst_binds" (ppr inst_binds) ;
 
                 -- Foreign exports
         traceTc "Tc7" empty ;

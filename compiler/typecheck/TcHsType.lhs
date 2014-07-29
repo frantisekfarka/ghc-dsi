@@ -16,6 +16,7 @@
 module TcHsType (
 	tcHsSigType, tcHsSigTypeNC, tcHsDeriv, tcHsVectInst, 
 	tcHsInstHead, 
+	tcHsDefInstDecCls, 
 	UserTypeCtxt(..), 
 
                 -- Type checking type and class decls
@@ -208,6 +209,19 @@ tc_inst_head (HsForAllTy _ hs_tvs hs_ctxt hs_ty)
 
 tc_inst_head hs_ty
   = tc_hs_type hs_ty ekConstraint
+
+tcHsDefInstDecCls :: Located Name ->  LHsTyVarBndrs Name -> TcM ([Name], Name)
+tcHsDefInstDecCls (L _ name) (HsQTvs { hsq_tvs = tvs })
+  = do { let tvs' = map extract tvs
+       ; let tvs'' = map get_utv tvs'
+       ; traceTc "FARI: deccls_tvs_in" (ppr tvs'')
+       ; -- TODO FARI nemusi byt head? Mutli-Variable Class
+       ; return (tvs'', name) }
+  where
+  	extract (L _ tvs) = tvs
+	get_utv (UserTyVar v) = v
+       	
+tcHsDefInstDecCls _ _ = error "THIS SHOULD NOT HAPPEN"
 
 -----------------
 tcHsDeriv :: HsType Name -> TcM ([TyVar], Class, [Type], Kind)

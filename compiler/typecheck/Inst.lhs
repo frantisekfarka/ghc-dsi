@@ -23,6 +23,7 @@ module Inst (
      
        tcGetInsts, tcGetInstEnvs, getOverlapFlag,
        tcExtendLocalInstEnv, instCallConstraints, newMethodFromName,
+       tcExtendDefInstEnv,
        tcSyntaxName,
 
        -- Simple functions over evidence variables
@@ -473,6 +474,80 @@ addLocalInst home_ie ispec
                          | (dup_ispec, _) <- homematches
                          , let dup_tys = is_tys dup_ispec
                          , isJust (tcMatchTys (mkVarSet tvs) tys dup_tys)] }
+
+tcExtendDefInstEnv :: [ClsInst] -> TcM a -> TcM a
+  -- Add new locally-defined default instances
+tcExtendDefInstEnv dfuns thing_inside
+ = do { traceDFuns dfuns
+      ; env <- getGblEnv
+      ; dinst_env' <- foldlM addDefInst (tcg_dinst_env env) dfuns
+      ; let env' = env { tcg_dinsts = dfuns ++ tcg_insts env,
+			 tcg_dinst_env = dinst_env' }
+      ; setGblEnv env' thing_inside }
+
+addDefInst :: InstEnv -> ClsInst -> TcM InstEnv
+-- Check that the proposed new default instance is OK, 
+-- and then add it to the home def inst env
+-- If overwrite_inst, then we can overwrite a direct match ??? WTF
+-- MyComment: It is mostly the same, the only difference
+-- should occur in context checking
+addDefInst home_ie ispec
+   = do {
+         -- Instantiate the dfun type so that we extend the instance
+         -- envt with completely fresh template variables
+         -- This is important because the template variables must
+         -- not overlap with anything in the things being looked up
+         -- (since we do unification).  
+             --
+             -- We use tcInstSkolType because we don't want to allocate fresh
+             --  *meta* type variables.
+             --
+             -- We use UnkSkol --- and *not* InstSkol or PatSkol --- because
+             -- these variables must be bindable by tcUnifyTys.  See
+             -- the call to tcUnifyTys in InstEnv, and the special
+             -- treatment that instanceBindFun gives to isOverlappableTyVar
+             -- This is absurdly delicate.
+
+             -- Load imported instances, so that we report
+             -- duplicates correctly
+           eps <- getEps
+         ; let inst_envs = (eps_inst_env eps, home_ie)
+               (tvs, cls, tys) = instanceHead ispec
+
+             -- Check functional dependencies
+         ; case checkFunDeps inst_envs ispec of
+             Just specs -> funDepErr ispec specs
+             Nothing    -> return ()
+
+             -- Check for duplicate instance decls
+         ; let (matches, unifs, _) = lookupInstEnv inst_envs cls tys
+               dup_ispecs = [ dup_ispec 
+                            | (dup_ispec, _) <- matches
+                            , let dup_tys = is_tys dup_ispec
+                            , isJust (tcMatchTys (mkVarSet tvs) tys dup_tys)]
+                             
+             -- Find memebers of the match list which ispec itself matches.
+             -- If the match is 2-way, it's a duplicate
+             -- If it's a duplicate, but we can overwrite home package dups, then overwrite
+         ; isGHCi <- getIsGHCi
+         ; overlapFlag <- getOverlapFlag
+         ; case isGHCi of
+             False -> case dup_ispecs of
+                 dup : _ -> dupInstErr ispec dup >> return (extendInstEnv home_ie ispec)
+                 []      -> return (extendInstEnv home_ie ispec)
+             True  -> case (dup_ispecs, home_ie_matches, unifs, overlapMode overlapFlag) of
+                 (_, _:_, _, _)      -> return (overwriteInstEnv home_ie ispec)
+                 (dup:_, [], _, _)   -> dupInstErr ispec dup >> return (extendInstEnv home_ie ispec)
+                 ([], _, u:_, NoOverlap)    -> overlappingInstErr ispec u >> return (extendInstEnv home_ie ispec)
+                 _                   -> return (extendInstEnv home_ie ispec)
+               where (homematches, _) = lookupInstEnv' home_ie cls tys
+                     home_ie_matches = [ dup_ispec 
+                         | (dup_ispec, _) <- homematches
+                         , let dup_tys = is_tys dup_ispec
+                         , isJust (tcMatchTys (mkVarSet tvs) tys dup_tys)] }
+
+
+
 
 traceDFuns :: [ClsInst] -> TcRn ()
 traceDFuns ispecs

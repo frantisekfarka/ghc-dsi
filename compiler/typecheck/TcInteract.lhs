@@ -1789,10 +1789,12 @@ NB: The desugarer needs be more clever to deal with equalities
 data LookupInstResult
   = NoInstance
   | GenInst [CtEvidence] EvTerm
+  | SDInst [CtEvidence] EvTerm
 
 instance Outputable LookupInstResult where
   ppr NoInstance = text "NoInstance"
   ppr (GenInst ev t) = text "GenInst" <+> ppr ev <+> ppr t
+  ppr (SDInst  ev t) = text "SDInst" <+> ppr ev <+> ppr t
 
 
 matchClassInst :: InertSet -> Class -> [Type] -> CtLoc -> TcS LookupInstResult
@@ -1847,6 +1849,7 @@ matchClassInst inerts clas tys loc
                                            , text "inerts=" <+> ppr inerts
                                            , text "untouchables=" <+> ppr untch ]
         ; instEnvs <- getInstEnvs
+	; traceTcS "FARI: instEnvs" (ppr instEnvs)
         ; case lookupInstEnv instEnvs clas tys of
             ([], _, _)               -- Nothing matches
                 -> do { traceTcS "matchClass not matching" $

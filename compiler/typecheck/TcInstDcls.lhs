@@ -381,14 +381,18 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
             -- Do class and family instance declarations
        ; env <- getGblEnv
        ; stuff <- mapAndRecoverM tcLocalInstDecl inst_decls
+       ; sdi_infos_s <- mapAndRecoverM tcScDefInstDecl tycl_decls
        ; let (local_infos_s, fam_insts_s) = unzip stuff
              fam_insts    = concat fam_insts_s
              local_infos' = concat local_infos_s
+	     sdi_infos   = concat sdi_infos_s
              -- Handwritten instances of the poly-kinded Typeable class are
              -- forbidden, so we handle those separately
              (typeable_instances, local_infos) = splitTypeable env local_infos'
 
-       ; addClsInsts local_infos $
+       ; -- addClsInsts local_infos $
+         addClsInsts (local_infos ++ sdi_infos) $ -- TODO FARI remove, temoprary cludge
+         addClsDefInsts sdi_infos $
          addFamInsts fam_insts   $
     do {    -- Compute instances from "deriving" clauses;
             -- This stuff computes a context for the derived instance
@@ -423,7 +427,7 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
              mapM_ (\x -> when (typInstCheck x) recordUnsafeInfer) local_infos
 
        ; return ( gbl_env
-                , bagToList deriv_inst_info ++ local_infos
+                , bagToList deriv_inst_info ++ local_infos ++ sdi_infos
                 , deriv_binds)
     }}
   where
@@ -451,6 +455,10 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
 addClsInsts :: [InstInfo Name] -> TcM a -> TcM a
 addClsInsts infos thing_inside
   = tcExtendLocalInstEnv (map iSpec infos) thing_inside
+
+addClsDefInsts :: [InstInfo Name] -> TcM a -> TcM a
+addClsDefInsts infos thing_inside
+  = tcExtendDefInstEnv (map iSpec infos) thing_inside
 
 addFamInsts :: [FamInst] -> TcM a -> TcM a
 -- Extend (a) the family instance envt
@@ -503,10 +511,21 @@ tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
   = do { (insts, fam_insts) <- tcClsInstDecl (L loc decl)
        ; return (insts, fam_insts) }
 
-tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
-  = error "TODO fill pattern!" {-- do { (insts, fam_insts) <- tcClsInstDecl (L loc decl)
+tcLocalInstDecl (L loc (ClsDefInstD { cdid_inst = decl }))
+  = error "TODO THIS Should not occur!" {-- do { (insts, fam_insts) <- tcClsInstDecl (L loc decl)
        ; return (insts, fam_insts) }
      --}
+
+tcScDefInstDecl :: LTyClDecl Name
+                    -> TcM ([InstInfo Name])
+        -- A source-file superclass default instance declaration
+        --
+tcScDefInstDecl (L loc (cls@(ClassDecl { tcdSDIs = sdis })))
+  = do { inst_s <- mapM (tcClsDefInstDecl cls) sdis
+       ; return $ concat inst_s
+       }
+tcScDefInstDecl _ = return [] -- do not scan for other than ClassDecls
+
 
 tcClsInstDecl :: LClsInstDecl Name -> TcM ([InstInfo Name], [FamInst])
 tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
@@ -598,6 +617,107 @@ tcAssocTyDecl :: Class                   -- Class of associated type
 tcAssocTyDecl clas mini_env ldecl
   = do { fam_inst <- tcTyFamInstDecl (Just (clas, mini_env)) ldecl
        ; return fam_inst }
+
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+               Type checking superclass default instances
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+
+tcClsDefInstDecl :: TyClDecl Name -> LClsDefInstDecl Name -> TcM [InstInfo Name]
+tcClsDefInstDecl (ClassDecl { tcdLName = deccls_lname  -- Located name
+	                    , tcdTyVars = deccls_tvs } -- LHsTyVarBndrs
+   ) (L loc (ClsDefInstDecl { cdid_poly_ty = poly_ty, cdid_binds = binds
+                                  , cdid_sigs = uprags, cdid_tyfam_insts = ats
+                                  , cdid_overlap_mode = overlap_mode
+                                  , cdid_datafam_insts = adts }))
+   = setSrcSpan loc                      $
+    addErrCtxt (instDeclCtxt1 poly_ty)  $
+    do  { is_boot <- tcIsHsBoot
+        ; checkTc (not is_boot || (isEmptyLHsBinds binds && null uprags))
+                  badBootDeclErr
+
+	; (d_tyvars, foo) <- tcHsDefInstDecCls deccls_lname deccls_tvs
+        ; (tyvars, theta, clas, inst_tys) <- tcHsInstHead InstDeclCtxt poly_ty
+	; traceTc "FARI: deccls_name" (ppr deccls_lname)
+	; traceTc "FARI: deccls_tvs" (ppr deccls_tvs)
+        ; let mini_env   = mkVarEnv (classTyVars clas `zip` inst_tys)
+        --; let mini_env   = mkVarEnv (classTyVars foo `zip` inst_tys)
+              mini_subst = mkTvSubst (mkInScopeSet (mkVarSet tyvars)) mini_env
+              --mini_subst = mkTvSubst (mkInScopeSet (mkVarSet deccls_tvs)) mini_env
+              --mb_info    = Just (clas, mini_env)
+                           
+        -- Next, process any associated types.
+        ; traceTc "tcClsDefInstDecl" (ppr poly_ty)
+        -- ; tyfam_insts0 <- tcExtendTyVarEnv tyvars $
+        --                   mapAndRecoverM (tcAssocTyDecl clas mini_env) ats
+        -- ; datafam_insts <- tcExtendTyVarEnv tyvars $
+        --                    mapAndRecoverM (tcDataFamInstDecl mb_info) adts
+
+        -- Check for missing associated types and build them
+        -- from their defaults (if available)
+        ; let defined_ats = mkNameSet $ map (tyFamInstDeclName . unLoc) ats
+              defined_adts = mkNameSet $ map (unLoc . dfid_tycon . unLoc) adts
+
+              mk_deflt_at_instances :: ClassATItem -> TcM [FamInst]
+              mk_deflt_at_instances (fam_tc, defs)
+                 -- User supplied instances ==> everything is OK
+                | tyConName fam_tc `elemNameSet` defined_ats
+                   || tyConName fam_tc `elemNameSet` defined_adts
+                = return []
+
+                 -- No defaults ==> generate a warning
+                | null defs
+                = do { warnMissingMethodOrAT "associated type" (tyConName fam_tc)
+                     ; return [] }
+
+                 -- No user instance, have defaults ==> instatiate them
+                 -- Example:   class C a where { type F a b :: *; type F a b = () }
+                 --            instance C [x]
+                 -- Then we want to generate the decl:   type F [x] b = ()
+                | otherwise 
+                = forM defs $ \br@(CoAxBranch { cab_lhs = pat_tys, cab_rhs = rhs }) ->
+                  do { let pat_tys' = substTys mini_subst pat_tys
+                           rhs'     = substTy  mini_subst rhs
+                           tv_set'  = tyVarsOfTypes pat_tys'
+                           tvs'     = varSetElemsKvsFirst tv_set'
+                     ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
+                     ; let axiom = mkSingleCoAxiom rep_tc_name tvs' fam_tc pat_tys' rhs'
+                     ; traceTc "mk_deflt_at_instance" (vcat [ ppr (tyvars, theta, clas, inst_tys)
+                                                            , pprCoAxBranch fam_tc br
+                                                            , pprCoAxiom axiom ])
+                     ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
+                       newFamInst SynFamilyInst axiom }
+
+        -- ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
+        
+        -- Finally, construct the Core representation of the instance.
+        -- (This no longer includes the associated types.)
+        ; dfun_name <- newDFunName clas inst_tys (getLoc poly_ty)
+                -- Dfun location is that of instance *header*
+
+        ; overlap_flag <-
+            do defaultOverlapFlag <- getOverlapFlag
+               return $ setOverlapModeMaybe defaultOverlapFlag overlap_mode
+        ; (subst, tyvars') <- tcInstSkolTyVars tyvars
+        ; let dfun  	= mkDictFunId dfun_name tyvars theta clas inst_tys
+              ispec 	= mkLocalInstance dfun overlap_flag tyvars' clas (substTys subst inst_tys)
+                            -- Be sure to freshen those type variables, 
+                            -- so they are sure not to appear in any lookup
+              inst_info = InstInfo { iSpec  = ispec
+                                   , iBinds = InstBindings
+                                     { ib_binds = binds
+                                     , ib_pragmas = uprags
+                                     , ib_extensions = []
+                                     , ib_standalone_deriving = False } }
+
+        -- ; return ( [inst_info], tyfam_insts0 ++ concat tyfam_insts1 ++ datafam_insts) }
+        ; return [inst_info] }
+--tcDefInstDecl _ _ = error "THIS SHOULD NOT OCCUR"
 \end{code}
 
 %************************************************************************
@@ -786,6 +906,7 @@ tcInstDecls2 tycl_decls inst_decls
   = do  { -- (a) Default methods from class decls
           let class_decls = filter (isClassDecl . unLoc) tycl_decls
         ; dm_binds_s <- mapM tcClassDecl2 class_decls
+	; traceTc "FARI: inst_decls" (ppr inst_decls)
         ; let dm_binds = unionManyBags dm_binds_s
 
           -- (b) instance declarations
@@ -821,6 +942,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
     setSrcSpan loc                              $
     addErrCtxt (instDeclCtxt2 (idType dfun_id)) $
     do {  -- Instantiate the instance decl with skolem constants
+       ; traceTc "FARI: InstInfo name" (ppr ispec)
        ; (inst_tyvars, dfun_theta, inst_head) <- tcSkolDFunType (idType dfun_id)
                      -- We instantiate the dfun_id with superSkolems.
                      -- See Note [Subtle interaction of recursion and overlap]
