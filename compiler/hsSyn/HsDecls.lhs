@@ -955,7 +955,8 @@ data ClsInstDecl name
 type LClsDefInstDecl name = Located (ClsDefInstDecl name)
 data ClsDefInstDecl name
   = ClsDefInstDecl
-      { cdid_poly_ty :: LHsType name    -- Context => Class Instance-type
+      { cdid_poly_ty :: LHsType name   -- Class Instance-type, Context is of
+                                       --  parent class of declaration
                                        -- Using a polytype means that the renamer conveniently
                                        -- figures out the quantified type variables for us.
       , cdid_binds :: LHsBinds name
