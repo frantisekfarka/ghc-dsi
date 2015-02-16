@@ -3153,6 +3153,7 @@ setSDPrecs :: TurnOnFlag -> DynP ()
 setSDPrecs True = do
 	setExtensionFlag Opt_UndecidableInstances
 	setExtensionFlag Opt_FlexibleInstances
+	setExtensionFlag Opt_OverlappingInstances
 setSDPrecs False = return ()
 
 
